@@ -17,20 +17,20 @@ def obtener_titulo_largo(url, tema_id):
         df = pd.read_csv(csv_url)
         df.columns = df.columns.str.strip()
 
-        # Normalización fuerte (CLAVE)
+        # Normalización robusta
         df['Tema_norm'] = (
             df['Tema']
             .astype(str)
-            .str.strip()
             .str.lower()
             .str.replace(" ", "")
+            .str.strip()
         )
 
         tema_norm = (
             tema_id
-            .strip()
             .lower()
             .replace(" ", "")
+            .strip()
         )
 
         fila = df[df['Tema_norm'] == tema_norm]
@@ -100,6 +100,12 @@ if 'paso' not in st.session_state:
         'preguntas': []
     })
 
+# ================= HEADER GLOBAL (CLAVE) =================
+if st.session_state.paso != 'inicio':
+    titulo = st.session_state.get("titulo_largo", "").strip()
+    st.header(titulo if titulo else f"Repaso: {st.session_state.tema_id}")
+    st.divider()
+
 # ================= 1. INICIO =================
 if st.session_state.paso == 'inicio':
     st.title("📚 Selector de Tema")
@@ -117,10 +123,6 @@ if st.session_state.paso == 'inicio':
 
 # ================= 2. MODO =================
 elif st.session_state.paso == 'modo':
-    titulo = st.session_state.get("titulo_largo", "").strip()
-    st.header(titulo if titulo else f"Repaso: {st.session_state.tema_id}")
-    st.write("---")
-
     c1, c2 = st.columns(2)
 
     if c1.button("🛠️ Entrenamiento"):
@@ -135,10 +137,7 @@ elif st.session_state.paso == 'modo':
 
 # ================= 3. TEST =================
 elif st.session_state.paso == 'test':
-    titulo = st.session_state.get("titulo_largo", "").strip()
-    st.header(titulo if titulo else f"Repaso: {st.session_state.tema_id}")
     st.caption(f"Pregunta {st.session_state.idx + 1} | Modo {st.session_state.modo}")
-    st.divider()
 
     preguntas = st.session_state.preguntas
 
