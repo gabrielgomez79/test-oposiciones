@@ -9,15 +9,38 @@ URL_SHEET = "https://docs.google.com/spreadsheets/d/1WbF-G8EDJKFp0oNqdbCbAYbGsMX
 def obtener_titulo_largo(url, tema_id):
     try:
         sheet_id = url.split('/d/')[1].split('/')[0]
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Indice"
-        df_idx = pd.read_csv(csv_url)
-        df_idx.columns = [c.strip() for c in df_idx.columns]
+        csv_url = (
+            f"https://docs.google.com/spreadsheets/d/"
+            f"{sheet_id}/gviz/tq?tqx=out:csv&sheet=Indice"
+        )
 
-        fila = df_idx[df_idx['Tema'].astype(str).str.strip() == tema_id.strip()]
+        df = pd.read_csv(csv_url)
+        df.columns = df.columns.str.strip()
+
+        # Normalización fuerte (CLAVE)
+        df['Tema_norm'] = (
+            df['Tema']
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .str.replace(" ", "")
+        )
+
+        tema_norm = (
+            tema_id
+            .strip()
+            .lower()
+            .replace(" ", "")
+        )
+
+        fila = df[df['Tema_norm'] == tema_norm]
+
         if not fila.empty:
-            return fila.iloc[0]['Nombre Largo']
-        return f"Título no definido para {tema_id}"
-    except Exception as e:
+            return str(fila.iloc[0]['Nombre Largo']).strip()
+
+        return f"Repaso: {tema_id}"
+
+    except Exception:
         return f"Repaso: {tema_id}"
 
 
@@ -25,11 +48,16 @@ def obtener_titulo_largo(url, tema_id):
 def cargar_preguntas(url, hoja):
     try:
         sheet_id = url.split('/d/')[1].split('/')[0]
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={hoja.replace(' ', '%20')}"
+        csv_url = (
+            f"https://docs.google.com/spreadsheets/d/"
+            f"{sheet_id}/gviz/tq?tqx=out:csv&sheet={hoja.replace(' ', '%20')}"
+        )
+
         df = pd.read_csv(csv_url)
-        df.columns = [c.strip() for c in df.columns]
+        df.columns = df.columns.str.strip()
 
         datos = []
+
         for i in range(0, len(df), 5):
             bloque = df.iloc[i:i + 5]
             if len(bloque) < 5:
@@ -45,13 +73,14 @@ def cargar_preguntas(url, hoja):
                     break
 
             datos.append({
-                "q": bloque.iloc[0]['Pregunta'],
-                "tips": bloque.iloc[0]['Justificación'],
+                "q": str(bloque.iloc[0]['Pregunta']),
+                "tips": str(bloque.iloc[0]['Justificación']),
                 "ops": opciones,
                 "ans": correcta
             })
 
         return datos
+
     except Exception:
         return []
 
@@ -59,7 +88,7 @@ def cargar_preguntas(url, hoja):
 # ================= APP =================
 st.set_page_config(page_title="Test Oposiciones", layout="centered")
 
-# --------- SESSION STATE ---------
+# ================= SESSION STATE =================
 if 'paso' not in st.session_state:
     st.session_state.update({
         'paso': 'inicio',
@@ -88,7 +117,8 @@ if st.session_state.paso == 'inicio':
 
 # ================= 2. MODO =================
 elif st.session_state.paso == 'modo':
-    st.header(st.session_state.titulo_largo)
+    titulo = st.session_state.get("titulo_largo", "").strip()
+    st.header(titulo if titulo else f"Repaso: {st.session_state.tema_id}")
     st.write("---")
 
     c1, c2 = st.columns(2)
@@ -105,7 +135,8 @@ elif st.session_state.paso == 'modo':
 
 # ================= 3. TEST =================
 elif st.session_state.paso == 'test':
-    st.header(st.session_state.titulo_largo)
+    titulo = st.session_state.get("titulo_largo", "").strip()
+    st.header(titulo if titulo else f"Repaso: {st.session_state.tema_id}")
     st.caption(f"Pregunta {st.session_state.idx + 1} | Modo {st.session_state.modo}")
     st.divider()
 
