@@ -44,7 +44,7 @@ def cargar_preguntas(url, hoja):
 
             correcta = ""
             for idx, est in enumerate(estados):
-                if "correcta" in est.lower():
+                if "Correcta." in est.lower():
                     correcta = opciones[idx]
                     break
 
