@@ -4,121 +4,123 @@ import pandas as pd
 # ================= CONFIGURACIÓN =================
 URL_SHEET = "https://docs.google.com/spreadsheets/d/1WbF-G8EDJKFp0oNqdbCbAYbGsMXtPKe7HuylUcjY3sQ/edit?usp=sharing"
 
-# ================= FUNCIONES MEJORADAS =================
+# ================= FUNCIONES DE CARGA =================
 @st.cache_data
-def obtener_datos_limpios(url, nombre_hoja):
+def obtener_datos_completos(url, hoja):
     try:
         sheet_id = url.split('/d/')[1].split('/')[0]
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={nombre_hoja.replace(' ', '%20')}"
-        # Forzamos que no use la primera fila como datos si no hay encabezados claros
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={hoja.replace(' ', '%20')}"
         df = pd.read_csv(csv_url)
-        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.strip() # Limpiar espacios en nombres de columnas
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame()
 
-def procesar_preguntas(df):
-    preguntas_list = []
-    # Usamos un paso de 5 filas por bloque
+def procesar_bloques(df):
+    preguntas_finales = []
+    # Procesamos de 5 en 5 filas
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # FILA 0: Enunciado y Justificación general
-        enunciado = str(bloque.iloc[0]['Pregunta']).strip()
-        justificacion_general = str(bloque.iloc[0]['Justificación']).strip()
+        # 1. El enunciado está siempre en la primera fila del bloque
+        pregunta_texto = str(bloque.iloc[0]['Pregunta']).strip()
+        justificacion_texto = str(bloque.iloc[0]['Justificación']).strip()
         
-        # FILAS 1 a 4: Las 4 opciones de respuesta
-        opciones = bloque.iloc[1:5]['Pregunta'].astype(str).str.strip().tolist()
-        # Buscamos la palabra "correcta" en la columna Justificación de esas 4 filas
-        estados = bloque.iloc[1:5]['Justificación'].astype(str).str.lower().tolist()
+        # 2. Extraer opciones (Filas 1 a 4 del bloque)
+        opciones_bloque = bloque.iloc[1:5]['Pregunta'].astype(str).str.strip().tolist()
+        estados_bloque = bloque.iloc[1:5]['Justificación'].astype(str).str.lower().tolist()
         
-        correcta = ""
-        for idx, est in enumerate(estados):
-            # Cambiamos a búsqueda de palabra clave para evitar fallos por puntos o negritas
-            if "correcta" in est:
-                correcta = opciones[idx]
+        # 3. BUSCADOR INTELIGENTE DE LA CORRECTA
+        # Buscamos en las 4 filas de opciones cuál tiene la palabra "correcta"
+        respuesta_correcta = ""
+        for idx, texto_justif in enumerate(estados_bloque):
+            if "correcta" in texto_justif:
+                respuesta_correcta = opciones_bloque[idx]
                 break
         
-        if enunciado and correcta:
-            preguntas_list.append({
-                "enunciado": enunciado,
-                "explicacion": justificacion_general,
-                "opciones": opciones,
-                "correcta": correcta
+        # Solo añadimos si encontramos una pregunta y una respuesta
+        if pregunta_texto and respuesta_correcta:
+            preguntas_finales.append({
+                "pregunta": pregunta_texto,
+                "opciones": opciones_bloque,
+                "correcta": respuesta_correcta,
+                "explicacion": justificacion_texto
             })
-    return preguntas_list
+    return preguntas_finales
 
-# ================= INTERFAZ STREAMLIT =================
-st.set_page_config(page_title="App Oposiciones", layout="centered")
+# ================= INTERFAZ =================
+st.set_page_config(page_title="Test Oposiciones", layout="centered")
 
 if 'paso' not in st.session_state:
     st.session_state.update({
         'paso': 'inicio', 'tema_id': '', 'titulo_largo': '', 
-        'modo': '', 'idx': 0, 'puntos': 0, 'preguntas': []
+        'idx': 0, 'puntos': 0, 'preguntas': [], 'modo': ''
     })
 
-# --- PASO 1: SELECCIÓN ---
+# --- PANTALLA 1: INICIO ---
 if st.session_state.paso == 'inicio':
-    st.title("📚 Mi Academia Móvil")
-    tema = st.selectbox("Elige tu tema:", ["Tema 01", "Tema 02"])
+    st.title("📚 Mi Academia")
+    tema = st.selectbox("Selecciona Tema:", ["Tema 01", "Tema 02"])
     
-    if st.button("Empezar Estudio"):
-        # 1. Buscar Título Largo
-        df_idx = obtener_datos_limpios(URL_SHEET, "Indice")
+    if st.button("Comenzar"):
+        # Cargar Título
+        df_idx = obtener_datos_completos(URL_SHEET, "Indice")
         if not df_idx.empty:
-            df_idx['Tema_match'] = df_idx['Tema'].astype(str).str.strip().str.lower()
-            match = df_idx[df_idx['Tema_match'] == tema.lower().strip()]
-            st.session_state.titulo_largo = str(match.iloc[0]['Nombre Largo']) if not match.empty else tema
+            df_idx['Tema_clean'] = df_idx['Tema'].astype(str).str.strip()
+            res = df_idx[df_idx['Tema_clean'] == tema]
+            st.session_state.titulo_largo = res.iloc[0]['Nombre Largo'] if not res.empty else tema
         
-        # 2. Cargar Preguntas
-        df_qs = obtener_datos_limpios(URL_SHEET, tema)
+        # Cargar Preguntas
+        df_qs = obtener_datos_completos(URL_SHEET, tema)
         if not df_qs.empty:
-            st.session_state.preguntas = procesar_preguntas(df_qs)
+            st.session_state.preguntas = procesar_bloques(df_qs)
             st.session_state.tema_id = tema
             st.session_state.paso = 'modo'
             st.rerun()
 
-# --- PASO 2: MODO ---
+# --- PANTALLA 2: MODO ---
 elif st.session_state.paso == 'modo':
-    st.info(f"🎯 **{st.session_state.titulo_largo}**")
-    c1, c2 = st.columns(2)
-    if c1.button("🛠️ Entrenamiento"):
+    st.subheader(f"📍 {st.session_state.titulo_largo}")
+    col1, col2 = st.columns(2)
+    if col1.button("🛠️ Entrenamiento"):
         st.session_state.modo, st.session_state.paso = 'Entrenamiento', 'test'
         st.rerun()
-    if c2.button("⏱️ Examen"):
+    if col2.button("⏱️ Examen"):
         st.session_state.modo, st.session_state.paso = 'Examen', 'test'
         st.rerun()
 
-# --- PASO 3: TEST ---
+# --- PANTALLA 3: TEST ---
 elif st.session_state.paso == 'test':
+    # Título persistente
     st.markdown(f"### {st.session_state.titulo_largo}")
     st.divider()
 
-    if st.session_state.idx < len(st.session_state.preguntas):
-        p = st.session_state.preguntas[st.session_state.idx]
-        st.write(f"**Pregunta {st.session_state.idx + 1}:**")
-        st.write(p['enunciado'])
+    qs = st.session_state.preguntas
+    if st.session_state.idx < len(qs):
+        item = qs[st.session_state.idx]
         
-        respuesta = st.radio("Opciones:", p['opciones'], key=f"q_{st.session_state.idx}")
+        st.write(f"**Pregunta {st.session_state.idx + 1}:**")
+        st.write(item['pregunta'])
+        
+        seleccion = st.radio("Elige una opción:", item['opciones'], key=f"p_{st.session_state.idx}")
 
-        # Comparación robusta
-        es_correcta = respuesta.strip().lower() == p['correcta'].strip().lower()
+        # COMPARACIÓN ABSOLUTA (Sin espacios, sin mayúsculas)
+        es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
 
         if st.session_state.modo == 'Entrenamiento':
-            if st.button("Comprobar ✅"):
-                if es_correcta: st.success("¡Muy bien! Es correcto.")
-                else: st.error(f"Incorrecto. La buena era: {p['correcta']}")
-                st.info(f"💡 {p['explicacion']}")
+            if st.button("Validar"):
+                if es_ok: st.success("¡Correcto!")
+                else: st.error(f"Fallo. La correcta es: {item['correcta']}")
+                st.info(f"Justificación: {item['explicacion']}")
 
         if st.button("Siguiente ➡️"):
-            if es_correcta: st.session_state.puntos += 1
+            if es_ok: st.session_state.puntos += 1
             st.session_state.idx += 1
             st.rerun()
     else:
-        st.balloons()
-        st.title("🏁 ¡Test Terminado!")
-        st.metric("Tu Nota", f"{st.session_state.puntos} / {len(st.session_state.preguntas)}")
-        if st.button("Volver al Inicio"):
+        st.title("🏁 Resultados")
+        st.metric("Aciertos", f"{st.session_state.puntos} / {len(qs)}")
+        if st.button("Reiniciar"):
             st.session_state.clear()
             st.rerun()
