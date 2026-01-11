@@ -10,7 +10,6 @@ def obtener_datos_completos(url, hoja):
         sheet_id = url.split('/d/')[1].split('/')[0]
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={hoja.replace(' ', '%20')}"
         df = pd.read_csv(csv_url)
-        # Limpiamos nombres de columnas de espacios laterales
         df.columns = df.columns.astype(str).str.strip() 
         return df
     except:
@@ -18,18 +17,13 @@ def obtener_datos_completos(url, hoja):
 
 def procesar_bloques(df):
     preguntas_finales = []
-    if df.empty: 
+    if df.empty or 'Pregunta' not in df.columns: 
         return []
     
-    # Verificación de seguridad: ¿Existen las columnas necesarias?
-    if 'Pregunta' not in df.columns or 'Justificación' not in df.columns:
-        return []
-
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # Leemos con get() o verificando nulos para evitar errores de celda vacía
         enunciado = str(bloque.iloc[0]['Pregunta']).strip()
         explicacion_txt = str(bloque.iloc[0]['Justificación']).strip()
         
@@ -43,7 +37,6 @@ def procesar_bloques(df):
             if "correcta" in marcador_justif:
                 respuesta_correcta = texto_opcion
         
-        # Solo añadimos si hay contenido real
         if enunciado and enunciado.lower() != "nan" and respuesta_correcta:
             preguntas_finales.append({
                 "pregunta": enunciado,
@@ -75,41 +68,31 @@ if st.session_state.paso == 'inicio':
     
     if not df_idx.empty and 'Tema' in df_idx.columns:
         opciones_validas = []
-        
         for _, fila in df_idx.iterrows():
             id_tema = str(fila['Tema']).strip()
             nombre_largo = str(fila.get('Nombre Largo', 'Sin título')).strip()
-            
-            # Verificación en tiempo real de la hoja
             df_temp = obtener_datos_completos(URL_SHEET, id_tema)
-            preguntas_test = procesar_bloques(df_temp)
-            
-            # SOLO si tiene preguntas procesables se añade a la lista
-            if len(preguntas_test) > 0:
+            if len(procesar_bloques(df_temp)) > 0:
                 opciones_validas.append(f"{id_tema} - {nombre_largo}")
         
         if opciones_validas:
             seleccion_completa = st.selectbox("Selecciona un tema:", opciones_validas)
-            
             if st.button("Continuar"):
                 partes = seleccion_completa.split(" - ", 1)
                 st.session_state.tema_id = partes[0].strip()
                 st.session_state.titulo_largo = partes[1].strip()
-                
-                # Cargamos definitivamente
                 df_qs = obtener_datos_completos(URL_SHEET, st.session_state.tema_id)
                 st.session_state.preguntas = procesar_bloques(df_qs)
                 st.session_state.paso = 'modo'
                 st.rerun()
         else:
-            st.warning("⚠️ No se encontraron temas con contenido válido. Revisa que las pestañas tengan las columnas 'Pregunta' y 'Justificación'.")
+            st.warning("⚠️ No hay temas con preguntas válidas.")
     else:
-        st.error("❌ No se pudo leer la hoja 'Indice' o no tiene la columna 'Tema'.")
+        st.error("❌ No se pudo leer la hoja 'Indice'.")
 
-# --- PANTALLA 2: MODO ---
+# --- PANTALLA 2: SELECCIÓN DE MODO ---
 elif st.session_state.paso == 'modo':
     st.info(f"🎯 **{st.session_state.tema_id}: {st.session_state.titulo_largo}**")
-    st.write("---")
     col1, col2 = st.columns(2)
     if col1.button("🛠️ Entrenamiento", use_container_width=True):
         st.session_state.modo, st.session_state.paso = 'Entrenamiento', 'test'
@@ -133,24 +116,28 @@ elif st.session_state.paso == 'test':
 
         col_val, col_sig = st.columns(2)
 
+        # MODO ENTRENAMIENTO: Botón Validar sigue siendo restrictivo
         if st.session_state.modo == 'Entrenamiento':
             if col_val.button("Validar ✅", use_container_width=True):
                 if seleccion is None:
-                    st.warning("⚠️ Selecciona una respuesta.")
+                    st.warning("⚠️ Selecciona una respuesta para validar.")
                 else:
                     es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
                     if es_ok: st.success("¡Correcto!")
-                    else: st.error(f"Incorrecto. Era: {item['correcta']}")
+                    else: st.error(f"Incorrecto. La correcta era: {item['correcta']}")
                     st.info(f"💡 {item['explicacion']}")
 
-        if col_sig.button("Siguiente ➡️", use_container_width=True):
-            if seleccion is None:
-                st.warning("⚠️ Debes marcar una opción.")
-            else:
+        # BOTÓN SIGUIENTE: Ahora permite pasar aunque seleccion sea None
+        btn_texto = "Siguiente ➡️" if seleccion is not None else "Saltar ⏭️"
+        if col_sig.button(btn_texto, use_container_width=True):
+            if seleccion is not None:
+                # Si contestó, comprobamos si suma punto
                 if seleccion.strip().lower() == item['correcta'].strip().lower():
                     st.session_state.puntos += 1
-                st.session_state.idx += 1
-                st.rerun()
+            
+            # Avanza a la siguiente pregunta siempre
+            st.session_state.idx += 1
+            st.rerun()
     else:
         st.balloons()
         st.title("🏁 Resultados")
