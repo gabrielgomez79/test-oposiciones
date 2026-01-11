@@ -10,8 +10,8 @@ def obtener_datos_limpios(url, nombre_hoja):
     try:
         sheet_id = url.split('/d/')[1].split('/')[0]
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={nombre_hoja.replace(' ', '%20')}"
+        # Forzamos que no use la primera fila como datos si no hay encabezados claros
         df = pd.read_csv(csv_url)
-        # Limpiamos nombres de columnas (quita espacios invisibles)
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
@@ -19,28 +19,34 @@ def obtener_datos_limpios(url, nombre_hoja):
 
 def procesar_preguntas(df):
     preguntas_list = []
-    # Recorremos en bloques de 5
+    # Usamos un paso de 5 filas por bloque
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # Opciones: filas 2 a 5 del bloque
+        # FILA 0: Enunciado y Justificación general
+        enunciado = str(bloque.iloc[0]['Pregunta']).strip()
+        justificacion_general = str(bloque.iloc[0]['Justificación']).strip()
+        
+        # FILAS 1 a 4: Las 4 opciones de respuesta
         opciones = bloque.iloc[1:5]['Pregunta'].astype(str).str.strip().tolist()
-        # Estados: buscamos la palabra "correcta" sin importar puntos o mayúsculas
+        # Buscamos la palabra "correcta" en la columna Justificación de esas 4 filas
         estados = bloque.iloc[1:5]['Justificación'].astype(str).str.lower().tolist()
         
         correcta = ""
         for idx, est in enumerate(estados):
-            if "correcta" in est: # Busca el texto "correcta" dentro de la celda
+            # Cambiamos a búsqueda de palabra clave para evitar fallos por puntos o negritas
+            if "correcta" in est:
                 correcta = opciones[idx]
                 break
         
-        preguntas_list.append({
-            "enunciado": str(bloque.iloc[0]['Pregunta']).strip(),
-            "explicacion": str(bloque.iloc[0]['Justificación']).strip(),
-            "opciones": opciones,
-            "correcta": correcta
-        })
+        if enunciado and correcta:
+            preguntas_list.append({
+                "enunciado": enunciado,
+                "explicacion": justificacion_general,
+                "opciones": opciones,
+                "correcta": correcta
+            })
     return preguntas_list
 
 # ================= INTERFAZ STREAMLIT =================
@@ -86,34 +92,33 @@ elif st.session_state.paso == 'modo':
 
 # --- PASO 3: TEST ---
 elif st.session_state.paso == 'test':
-    # EL TÍTULO SIEMPRE VISIBLE ARRIBA
     st.markdown(f"### {st.session_state.titulo_largo}")
     st.divider()
 
-    p = st.session_state.preguntas[st.session_state.idx]
-    st.write(f"**{p['enunciado']}**")
-    
-    respuesta = st.radio("Opciones:", p['opciones'], key=f"q_{st.session_state.idx}")
+    if st.session_state.idx < len(st.session_state.preguntas):
+        p = st.session_state.preguntas[st.session_state.idx]
+        st.write(f"**Pregunta {st.session_state.idx + 1}:**")
+        st.write(p['enunciado'])
+        
+        respuesta = st.radio("Opciones:", p['opciones'], key=f"q_{st.session_state.idx}")
 
-    # Comparación blindada (quita espacios y tildes si las hubiera)
-    es_correcta = respuesta.strip().lower() == p['correcta'].strip().lower()
+        # Comparación robusta
+        es_correcta = respuesta.strip().lower() == p['correcta'].strip().lower()
 
-    if st.session_state.modo == 'Entrenamiento':
-        if st.button("Comprobar ✅"):
-            if es_correcta: st.success("¡Muy bien! Es correcto.")
-            else: st.error(f"Incorrecto. La buena era: {p['correcta']}")
-            st.info(f"💡 {p['explicacion']}")
+        if st.session_state.modo == 'Entrenamiento':
+            if st.button("Comprobar ✅"):
+                if es_correcta: st.success("¡Muy bien! Es correcto.")
+                else: st.error(f"Incorrecto. La buena era: {p['correcta']}")
+                st.info(f"💡 {p['explicacion']}")
 
-    if st.button("Siguiente ➡️"):
-        if es_correcta: st.session_state.puntos += 1
-        st.session_state.idx += 1
-        st.rerun()
-
-# --- RESULTADOS ---
-if st.session_state.paso == 'test' and st.session_state.idx >= len(st.session_state.preguntas):
-    st.balloons()
-    st.title("🏁 ¡Test Terminado!")
-    st.metric("Tu Nota", f"{st.session_state.puntos} / {len(st.session_state.preguntas)}")
-    if st.button("Volver al Inicio"):
-        st.session_state.clear()
-        st.rerun()
+        if st.button("Siguiente ➡️"):
+            if es_correcta: st.session_state.puntos += 1
+            st.session_state.idx += 1
+            st.rerun()
+    else:
+        st.balloons()
+        st.title("🏁 ¡Test Terminado!")
+        st.metric("Tu Nota", f"{st.session_state.puntos} / {len(st.session_state.preguntas)}")
+        if st.button("Volver al Inicio"):
+            st.session_state.clear()
+            st.rerun()
