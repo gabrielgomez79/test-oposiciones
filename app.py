@@ -11,46 +11,48 @@ def obtener_datos_completos(url, hoja):
         sheet_id = url.split('/d/')[1].split('/')[0]
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={hoja.replace(' ', '%20')}"
         df = pd.read_csv(csv_url)
-        df.columns = df.columns.str.strip() # Limpiar espacios en nombres de columnas
+        df.columns = df.columns.str.strip() 
         return df
     except:
         return pd.DataFrame()
 
 def procesar_bloques(df):
     preguntas_finales = []
-    # Procesamos de 5 en 5 filas
+    # Recorremos el dataframe en saltos de 5 filas exactas
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # 1. El enunciado está siempre en la primera fila del bloque
-        pregunta_texto = str(bloque.iloc[0]['Pregunta']).strip()
-        justificacion_texto = str(bloque.iloc[0]['Justificación']).strip()
+        # FILA 1 del bloque (Índice 0): Enunciado
+        enunciado = str(bloque.iloc[0]['Pregunta']).strip()
+        explicacion_txt = str(bloque.iloc[0]['Justificación']).strip()
         
-        # 2. Extraer opciones (Filas 1 a 4 del bloque)
-        opciones_bloque = bloque.iloc[1:5]['Pregunta'].astype(str).str.strip().tolist()
-        estados_bloque = bloque.iloc[1:5]['Justificación'].astype(str).str.lower().tolist()
-        
-        # 3. BUSCADOR INTELIGENTE DE LA CORRECTA
-        # Buscamos en las 4 filas de opciones cuál tiene la palabra "correcta"
+        # FILAS 2 a 5 del bloque (Índices 1, 2, 3, 4): Opciones y Marcador de Correcta
+        opciones_bloque = []
         respuesta_correcta = ""
-        for idx, texto_justif in enumerate(estados_bloque):
-            if "correcta" in texto_justif:
-                respuesta_correcta = opciones_bloque[idx]
-                break
         
-        # Solo añadimos si encontramos una pregunta y una respuesta
-        if pregunta_texto and respuesta_correcta:
+        # Analizamos las 4 filas de respuestas dentro del bloque
+        for j in range(1, 5):
+            texto_opcion = str(bloque.iloc[j]['Pregunta']).strip()
+            marcador_justif = str(bloque.iloc[j]['Justificación']).lower()
+            
+            opciones_bloque.append(texto_opcion)
+            
+            # Buscamos la palabra "correcta" en la segunda columna (Justificación)
+            if "correcta" in marcador_justif:
+                respuesta_correcta = texto_opcion
+        
+        if enunciado and respuesta_correcta:
             preguntas_finales.append({
-                "pregunta": pregunta_texto,
+                "pregunta": enunciado,
                 "opciones": opciones_bloque,
                 "correcta": respuesta_correcta,
-                "explicacion": justificacion_texto
+                "explicacion": explicacion_txt
             })
     return preguntas_finales
 
 # ================= INTERFAZ =================
-st.set_page_config(page_title="Test Oposiciones", layout="centered")
+st.set_page_config(page_title="App Oposiciones", layout="centered")
 
 if 'paso' not in st.session_state:
     st.session_state.update({
@@ -64,14 +66,14 @@ if st.session_state.paso == 'inicio':
     tema = st.selectbox("Selecciona Tema:", ["Tema 01", "Tema 02"])
     
     if st.button("Comenzar"):
-        # Cargar Título
+        # 1. Cargar Título Largo desde pestaña 'Indice'
         df_idx = obtener_datos_completos(URL_SHEET, "Indice")
         if not df_idx.empty:
             df_idx['Tema_clean'] = df_idx['Tema'].astype(str).str.strip()
             res = df_idx[df_idx['Tema_clean'] == tema]
             st.session_state.titulo_largo = res.iloc[0]['Nombre Largo'] if not res.empty else tema
         
-        # Cargar Preguntas
+        # 2. Cargar y Procesar Preguntas
         df_qs = obtener_datos_completos(URL_SHEET, tema)
         if not df_qs.empty:
             st.session_state.preguntas = procesar_bloques(df_qs)
@@ -81,7 +83,7 @@ if st.session_state.paso == 'inicio':
 
 # --- PANTALLA 2: MODO ---
 elif st.session_state.paso == 'modo':
-    st.subheader(f"📍 {st.session_state.titulo_largo}")
+    st.info(f"🎯 **{st.session_state.titulo_largo}**")
     col1, col2 = st.columns(2)
     if col1.button("🛠️ Entrenamiento"):
         st.session_state.modo, st.session_state.paso = 'Entrenamiento', 'test'
@@ -92,34 +94,32 @@ elif st.session_state.paso == 'modo':
 
 # --- PANTALLA 3: TEST ---
 elif st.session_state.paso == 'test':
-    # Título persistente
     st.markdown(f"### {st.session_state.titulo_largo}")
     st.divider()
 
     qs = st.session_state.preguntas
     if st.session_state.idx < len(qs):
         item = qs[st.session_state.idx]
-        
         st.write(f"**Pregunta {st.session_state.idx + 1}:**")
         st.write(item['pregunta'])
         
         seleccion = st.radio("Elige una opción:", item['opciones'], key=f"p_{st.session_state.idx}")
 
-        # COMPARACIÓN ABSOLUTA (Sin espacios, sin mayúsculas)
+        # Comparación robusta para evitar fallos por espacios o tildes
         es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
 
         if st.session_state.modo == 'Entrenamiento':
-            if st.button("Validar"):
+            if st.button("Validar ✅"):
                 if es_ok: st.success("¡Correcto!")
-                else: st.error(f"Fallo. La correcta es: {item['correcta']}")
-                st.info(f"Justificación: {item['explicacion']}")
+                else: st.error(f"Incorrecto. La correcta es: {item['correcta']}")
+                st.info(f"💡 {item['explicacion']}")
 
         if st.button("Siguiente ➡️"):
             if es_ok: st.session_state.puntos += 1
             st.session_state.idx += 1
             st.rerun()
     else:
-        st.title("🏁 Resultados")
+        st.title("🏁 Fin del Test")
         st.metric("Aciertos", f"{st.session_state.puntos} / {len(qs)}")
         if st.button("Reiniciar"):
             st.session_state.clear()
