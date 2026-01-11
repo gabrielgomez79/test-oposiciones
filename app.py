@@ -94,33 +94,59 @@ elif st.session_state.paso == 'modo':
 
 # --- PANTALLA 3: TEST ---
 elif st.session_state.paso == 'test':
+    # Mostramos el título largo guardado en la sesión
     st.markdown(f"### {st.session_state.titulo_largo}")
     st.divider()
 
     qs = st.session_state.preguntas
     if st.session_state.idx < len(qs):
         item = qs[st.session_state.idx]
-        st.write(f"**Pregunta {st.session_state.idx + 1}:**")
+        st.write(f"**Pregunta {st.session_state.idx + 1} de {len(qs)}**")
         st.write(item['pregunta'])
         
-        seleccion = st.radio("Elige una opción:", item['opciones'], key=f"p_{st.session_state.idx}")
+        # index=None asegura que no haya ninguna opción marcada al cargar
+        seleccion = st.radio(
+            "Selecciona una opción:", 
+            item['opciones'], 
+            index=None, 
+            key=f"p_{st.session_state.idx}"
+        )
 
-        # Comparación robusta para evitar fallos por espacios o tildes
-        es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
+        # Contenedor para botones
+        col_val, col_sig = st.columns(2)
 
+        # Lógica para el modo ENTRENAMIENTO (Botón Validar)
         if st.session_state.modo == 'Entrenamiento':
-            if st.button("Validar ✅"):
-                if es_ok: st.success("¡Correcto!")
-                else: st.error(f"Incorrecto. La correcta es: {item['correcta']}")
-                st.info(f"💡 {item['explicacion']}")
+            if col_val.button("Validar ✅", use_container_width=True):
+                if seleccion is None:
+                    st.warning("⚠️ Selecciona una respuesta para validar.")
+                else:
+                    es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
+                    if es_ok: 
+                        st.success("¡Correcto! ✨")
+                    else: 
+                        st.error(f"Incorrecto. La respuesta correcta era: {item['correcta']}")
+                    st.info(f"💡 **Justificación:** {item['explicacion']}")
 
-        if st.button("Siguiente ➡️"):
-            if es_ok: st.session_state.puntos += 1
-            st.session_state.idx += 1
-            st.rerun()
+        # Lógica para AMBOS MODOS (Botón Siguiente)
+        if col_sig.button("Siguiente ➡️", use_container_width=True):
+            if seleccion is None:
+                st.warning("⚠️ No puedes avanzar sin marcar una respuesta.")
+            else:
+                # Comprobamos acierto antes de pasar a la siguiente
+                es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
+                if es_ok: 
+                    st.session_state.puntos += 1
+                
+                # Avanzamos de índice
+                st.session_state.idx += 1
+                st.rerun()
     else:
-        st.title("🏁 Fin del Test")
-        st.metric("Aciertos", f"{st.session_state.puntos} / {len(qs)}")
-        if st.button("Reiniciar"):
+        # PANTALLA DE RESULTADOS
+        st.balloons()
+        st.title("🏁 Test Finalizado")
+        st.metric("Puntuación Total", f"{st.session_state.puntos} / {len(qs)}")
+        
+        if st.button("Volver al Inicio"):
             st.session_state.clear()
             st.rerun()
