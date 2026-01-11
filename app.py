@@ -23,7 +23,7 @@ def procesar_bloques(df):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # FILA 1 del bloque (Índice 0): Enunciado
+        # FILA 1 del bloque (Índice 0): Enunciado y Justificación general
         enunciado = str(bloque.iloc[0]['Pregunta']).strip()
         explicacion_txt = str(bloque.iloc[0]['Justificación']).strip()
         
@@ -54,24 +54,30 @@ def procesar_bloques(df):
 # ================= INTERFAZ =================
 st.set_page_config(page_title="App Oposiciones", layout="centered")
 
+# Inicialización de estados de sesión
 if 'paso' not in st.session_state:
     st.session_state.update({
-        'paso': 'inicio', 'tema_id': '', 'titulo_largo': '', 
-        'idx': 0, 'puntos': 0, 'preguntas': [], 'modo': ''
+        'paso': 'inicio', 
+        'tema_id': '', 
+        'titulo_largo': '', 
+        'idx': 0, 
+        'puntos': 0, 
+        'preguntas': [], 
+        'modo': ''
     })
 
-# --- PANTALLA 1: INICIO ---
+# --- PANTALLA 1: SELECCIÓN DE TEMA ---
 if st.session_state.paso == 'inicio':
     st.title("📚 Mi Academia")
-    tema = st.selectbox("Selecciona Tema:", ["Tema 01", "Tema 02"])
+    tema = st.selectbox("Selecciona Tema de estudio:", ["Tema 01", "Tema 02"])
     
-    if st.button("Comenzar"):
+    if st.button("Continuar"):
         # 1. Cargar Título Largo desde pestaña 'Indice'
         df_idx = obtener_datos_completos(URL_SHEET, "Indice")
         if not df_idx.empty:
             df_idx['Tema_clean'] = df_idx['Tema'].astype(str).str.strip()
             res = df_idx[df_idx['Tema_clean'] == tema]
-            st.session_state.titulo_largo = res.iloc[0]['Nombre Largo'] if not res.empty else tema
+            st.session_state.titulo_largo = res.iloc[0]['Nombre Largo'] if not res.empty else "Tema sin título"
         
         # 2. Cargar y Procesar Preguntas
         df_qs = obtener_datos_completos(URL_SHEET, tema)
@@ -80,22 +86,27 @@ if st.session_state.paso == 'inicio':
             st.session_state.tema_id = tema
             st.session_state.paso = 'modo'
             st.rerun()
+        else:
+            st.error(f"No se pudieron cargar preguntas para el {tema}. Revisa el nombre de la hoja.")
 
-# --- PANTALLA 2: MODO ---
+# --- PANTALLA 2: SELECCIÓN DE MODO ---
 elif st.session_state.paso == 'modo':
-    st.info(f"🎯 **{st.session_state.titulo_largo}**")
+    st.info(f"🎯 **{st.session_state.tema_id}: {st.session_state.titulo_largo}**")
+    st.write("---")
+    st.write("### Elige tu metodología:")
     col1, col2 = st.columns(2)
-    if col1.button("🛠️ Entrenamiento"):
+    if col1.button("🛠️ Entrenamiento", use_container_width=True):
         st.session_state.modo, st.session_state.paso = 'Entrenamiento', 'test'
         st.rerun()
-    if col2.button("⏱️ Examen"):
+    if col2.button("⏱️ Examen", use_container_width=True):
         st.session_state.modo, st.session_state.paso = 'Examen', 'test'
         st.rerun()
 
-# --- PANTALLA 3: TEST ---
+# --- PANTALLA 3: TEST (ENTRENAMIENTO O EXAMEN) ---
 elif st.session_state.paso == 'test':
-    # Mostramos el título largo guardado en la sesión
-    st.markdown(f"### {st.session_state.titulo_largo}")
+    # Encabezado combinado solicitado
+    st.markdown(f"### {st.session_state.tema_id}: {st.session_state.titulo_largo}")
+    st.caption(f"Modo actual: {st.session_state.modo}")
     st.divider()
 
     qs = st.session_state.preguntas
@@ -104,18 +115,17 @@ elif st.session_state.paso == 'test':
         st.write(f"**Pregunta {st.session_state.idx + 1} de {len(qs)}**")
         st.write(item['pregunta'])
         
-        # index=None asegura que no haya ninguna opción marcada al cargar
+        # index=None asegura que no haya selección previa
         seleccion = st.radio(
-            "Selecciona una opción:", 
+            "Selecciona tu respuesta:", 
             item['opciones'], 
             index=None, 
             key=f"p_{st.session_state.idx}"
         )
 
-        # Contenedor para botones
         col_val, col_sig = st.columns(2)
 
-        # Lógica para el modo ENTRENAMIENTO (Botón Validar)
+        # Botón Validar (Solo disponible en modo Entrenamiento)
         if st.session_state.modo == 'Entrenamiento':
             if col_val.button("Validar ✅", use_container_width=True):
                 if seleccion is None:
@@ -128,25 +138,27 @@ elif st.session_state.paso == 'test':
                         st.error(f"Incorrecto. La respuesta correcta era: {item['correcta']}")
                     st.info(f"💡 **Justificación:** {item['explicacion']}")
 
-        # Lógica para AMBOS MODOS (Botón Siguiente)
+        # Botón Siguiente (Aplica a ambos modos con validación de selección)
         if col_sig.button("Siguiente ➡️", use_container_width=True):
             if seleccion is None:
-                st.warning("⚠️ No puedes avanzar sin marcar una respuesta.")
+                st.warning("⚠️ Debes marcar una opción para continuar.")
             else:
-                # Comprobamos acierto antes de pasar a la siguiente
                 es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
                 if es_ok: 
                     st.session_state.puntos += 1
-                
-                # Avanzamos de índice
                 st.session_state.idx += 1
                 st.rerun()
     else:
-        # PANTALLA DE RESULTADOS
+        # PANTALLA FINAL DE RESULTADOS
         st.balloons()
-        st.title("🏁 Test Finalizado")
-        st.metric("Puntuación Total", f"{st.session_state.puntos} / {len(qs)}")
+        st.title("🏁 Resultados Finales")
+        st.metric("Puntuación Obtenida", f"{st.session_state.puntos} / {len(qs)}")
         
+        # Calcular porcentaje si quieres añadirlo
+        porcentaje = (st.session_state.puntos / len(qs)) * 100
+        st.progress(porcentaje / 100)
+        st.write(f"Has acertado el {porcentaje:.1f}% de las preguntas.")
+
         if st.button("Volver al Inicio"):
             st.session_state.clear()
             st.rerun()
