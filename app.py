@@ -49,51 +49,48 @@ st.set_page_config(page_title="App Oposiciones", layout="centered")
 
 if 'paso' not in st.session_state:
     st.session_state.update({
-        'paso': 'inicio', 
-        'tema_id': '', 
-        'titulo_largo': '', 
-        'idx': 0, 
-        'puntos': 0, 
-        'preguntas': [], 
-        'modo': ''
+        'paso': 'inicio', 'tema_id': '', 'titulo_largo': '', 
+        'idx': 0, 'puntos': 0, 'preguntas': [], 'modo': ''
     })
 
-# --- PANTALLA 1: SELECCIÓN DE TEMA (MODIFICADA) ---
+# --- PANTALLA 1: SELECCIÓN DE TEMA ---
 if st.session_state.paso == 'inicio':
     st.title("📚 Mi Academia")
     
-    # 1. Cargamos el índice primero para llenar el selector
-    with st.spinner("Cargando catálogo de temas..."):
+    with st.spinner("Buscando temas disponibles..."):
         df_idx = obtener_datos_completos(URL_SHEET, "Indice")
     
     if not df_idx.empty:
-        # Creamos una lista de strings tipo "Tema 01 - Título Largo"
-        opciones_selector = []
+        opciones_validas = []
+        
+        # FILTRADO DINÁMICO: Solo añadimos temas que tengan preguntas
         for _, fila in df_idx.iterrows():
-            texto_combinado = f"{fila['Tema']} - {fila['Nombre Largo']}"
-            opciones_selector.append(texto_combinado)
-        
-        seleccion_completa = st.selectbox("Selecciona el tema a estudiar:", opciones_selector)
-        
-        if st.button("Continuar"):
-            # Separamos la selección (asumimos que el separador es " - ")
-            partes = seleccion_completa.split(" - ", 1)
-            st.session_state.tema_id = partes[0].strip()
-            st.session_state.titulo_largo = partes[1].strip()
+            id_tema = str(fila['Tema']).strip()
+            # Intentamos cargar una muestra de la hoja del tema
+            df_verificar = obtener_datos_completos(URL_SHEET, id_tema)
             
-            # 2. Cargar las preguntas del tema seleccionado
-            with st.spinner(f"Cargando preguntas de {st.session_state.tema_id}..."):
+            if not df_verificar.empty and len(df_verificar) >= 5:
+                texto_menu = f"{id_tema} - {fila['Nombre Largo']}"
+                opciones_validas.append(texto_menu)
+        
+        if opciones_validas:
+            seleccion_completa = st.selectbox("Selecciona un tema (solo se muestran temas con contenido):", opciones_validas)
+            
+            if st.button("Continuar"):
+                partes = seleccion_completa.split(" - ", 1)
+                st.session_state.tema_id = partes[0].strip()
+                st.session_state.titulo_largo = partes[1].strip()
+                
                 df_qs = obtener_datos_completos(URL_SHEET, st.session_state.tema_id)
-                if not df_qs.empty:
-                    st.session_state.preguntas = procesar_bloques(df_qs)
-                    st.session_state.paso = 'modo'
-                    st.rerun()
-                else:
-                    st.error(f"Error: No se encontró la hoja '{st.session_state.tema_id}' o está vacía.")
+                st.session_state.preguntas = procesar_bloques(df_qs)
+                st.session_state.paso = 'modo'
+                st.rerun()
+        else:
+            st.warning("No se encontraron temas con preguntas cargadas en el Sheets.")
     else:
-        st.error("No se pudo cargar la hoja 'Indice'. Verifica el nombre de la pestaña en Google Sheets.")
+        st.error("Error al cargar la hoja 'Indice'.")
 
-# --- PANTALLA 2: SELECCIÓN DE MODO ---
+# --- PANTALLA 2: MODO ---
 elif st.session_state.paso == 'modo':
     st.info(f"🎯 **{st.session_state.tema_id}: {st.session_state.titulo_largo}**")
     st.write("---")
@@ -108,14 +105,13 @@ elif st.session_state.paso == 'modo':
 # --- PANTALLA 3: TEST ---
 elif st.session_state.paso == 'test':
     st.markdown(f"### {st.session_state.tema_id}: {st.session_state.titulo_largo}")
-    st.caption(f"Modo: {st.session_state.modo}")
+    st.caption(f"Modo: {st.session_state.modo} | Pregunta {st.session_state.idx + 1} de {len(st.session_state.preguntas)}")
     st.divider()
 
     qs = st.session_state.preguntas
     if st.session_state.idx < len(qs):
         item = qs[st.session_state.idx]
-        st.write(f"**Pregunta {st.session_state.idx + 1} de {len(qs)}**")
-        st.write(item['pregunta'])
+        st.write(f"**{item['pregunta']}**")
         
         seleccion = st.radio("Opciones:", item['opciones'], index=None, key=f"p_{st.session_state.idx}")
 
