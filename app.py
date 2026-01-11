@@ -5,7 +5,6 @@ import pandas as pd
 URL_SHEET = "https://docs.google.com/spreadsheets/d/1WbF-G8EDJKFp0oNqdbCbAYbGsMXtPKe7HuylUcjY3sQ/edit?usp=sharing"
 
 # ================= FUNCIONES DE CARGA =================
-@st.cache_data
 def obtener_datos_completos(url, hoja):
     try:
         sheet_id = url.split('/d/')[1].split('/')[0]
@@ -18,6 +17,8 @@ def obtener_datos_completos(url, hoja):
 
 def procesar_bloques(df):
     preguntas_finales = []
+    if df.empty: return []
+    
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
@@ -35,7 +36,7 @@ def procesar_bloques(df):
             if "correcta" in marcador_justif:
                 respuesta_correcta = texto_opcion
         
-        if enunciado and respuesta_correcta:
+        if enunciado and respuesta_correcta and "nan" not in enunciado.lower():
             preguntas_finales.append({
                 "pregunta": enunciado,
                 "opciones": opciones_bloque,
@@ -57,24 +58,35 @@ if 'paso' not in st.session_state:
 if st.session_state.paso == 'inicio':
     st.title("📚 Mi Academia")
     
-    with st.spinner("Buscando temas disponibles..."):
+    # Botón para forzar actualización de datos si fuera necesario
+    if st.button("🔄 Actualizar Temario"):
+        st.cache_data.clear()
+        st.rerun()
+
+    with st.spinner("Verificando contenido de los temas..."):
         df_idx = obtener_datos_completos(URL_SHEET, "Indice")
     
     if not df_idx.empty:
         opciones_validas = []
         
-        # FILTRADO DINÁMICO: Solo añadimos temas que tengan preguntas
+        # FILTRADO ESTRICTO: Solo temas con hojas que tengan preguntas procesables
         for _, fila in df_idx.iterrows():
             id_tema = str(fila['Tema']).strip()
-            # Intentamos cargar una muestra de la hoja del tema
-            df_verificar = obtener_datos_completos(URL_SHEET, id_tema)
+            # Descargamos la hoja para ver si hay algo
+            df_temp = obtener_datos_completos(URL_SHEET, id_tema)
+            # Procesamos para ver si salen preguntas reales
+            preguntas_test = procesar_bloques(df_temp)
             
-            if not df_verificar.empty and len(df_verificar) >= 5:
+            if len(preguntas_test) > 0:
                 texto_menu = f"{id_tema} - {fila['Nombre Largo']}"
                 opciones_validas.append(texto_menu)
         
         if opciones_validas:
-            seleccion_completa = st.selectbox("Selecciona un tema (solo se muestran temas con contenido):", opciones_validas)
+            seleccion_completa = st.selectbox(
+                "Selecciona un tema:", 
+                opciones_validas,
+                help="Solo aparecen temas que tienen preguntas cargadas correctamente."
+            )
             
             if st.button("Continuar"):
                 partes = seleccion_completa.split(" - ", 1)
@@ -86,11 +98,11 @@ if st.session_state.paso == 'inicio':
                 st.session_state.paso = 'modo'
                 st.rerun()
         else:
-            st.warning("No se encontraron temas con preguntas cargadas en el Sheets.")
+            st.warning("⚠️ No se han encontrado temas con preguntas válidas en el Excel.")
     else:
-        st.error("Error al cargar la hoja 'Indice'.")
+        st.error("❌ No se pudo conectar con la hoja 'Indice'.")
 
-# --- PANTALLA 2: MODO ---
+# --- PANTALLA 2: SELECCIÓN DE MODO ---
 elif st.session_state.paso == 'modo':
     st.info(f"🎯 **{st.session_state.tema_id}: {st.session_state.titulo_largo}**")
     st.write("---")
@@ -105,7 +117,7 @@ elif st.session_state.paso == 'modo':
 # --- PANTALLA 3: TEST ---
 elif st.session_state.paso == 'test':
     st.markdown(f"### {st.session_state.tema_id}: {st.session_state.titulo_largo}")
-    st.caption(f"Modo: {st.session_state.modo} | Pregunta {st.session_state.idx + 1} de {len(st.session_state.preguntas)}")
+    st.caption(f"Pregunta {st.session_state.idx + 1} de {len(st.session_state.preguntas)}")
     st.divider()
 
     qs = st.session_state.preguntas
@@ -124,7 +136,7 @@ elif st.session_state.paso == 'test':
                 else:
                     es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
                     if es_ok: st.success("¡Correcto!")
-                    else: st.error(f"Incorrecto. Era: {item['correcta']}")
+                    else: st.error(f"Incorrecto. La buena era: {item['correcta']}")
                     st.info(f"💡 {item['explicacion']}")
 
         if col_sig.button("Siguiente ➡️", use_container_width=True):
