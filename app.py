@@ -21,32 +21,27 @@ def procesar_bloques(df):
     if df.empty or 'Pregunta' not in df.columns: 
         return []
     
-    # Procesamos bloques de 5 filas estrictos
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # Fila 0: Enunciado y Explicación
         enunciado = str(bloque.iloc[0]['Pregunta']).strip()
         justificacion_gen = str(bloque.iloc[0]['Justificación']).strip()
         
         opciones_bloque = []
         texto_correcta = None 
         
-        # Analizamos Opciones (Filas 1 a 4 del bloque)
+        # 1. Primero cargamos las 4 opciones COMPLETAS
         for j in range(1, 5):
             opcion_txt = str(bloque.iloc[j]['Pregunta']).strip()
-            # Miramos la columna Justificación de esa fila específica
-            marcador = str(bloque.iloc[j]['Justificación']).lower().strip()
-            
             opciones_bloque.append(opcion_txt)
             
-            # Si encontramos "correcta", la guardamos y PARAMOS de buscar en este bloque
+            # 2. Identificamos cuál es la correcta sin romper el bucle de carga
+            marcador = str(bloque.iloc[j]['Justificación']).lower().strip()
             if "correcta" in marcador:
                 texto_correcta = opcion_txt
-                break # Esto evita que se sobrescriba con la opción D
         
-        # Solo añadimos si el bloque es coherente
+        # 3. Solo añadimos si tenemos enunciado y hemos encontrado la correcta
         if enunciado and enunciado.lower() != "nan" and texto_correcta:
             preguntas_finales.append({
                 "pregunta": enunciado,
@@ -120,16 +115,16 @@ elif st.session_state.paso == 'test':
     item = st.session_state.preguntas[st.session_state.idx]
     st.write(f"**{item['pregunta']}**")
     
+    # El radio button ahora recibirá la lista COMPLETA de 4 opciones
     seleccion = st.radio(
         "Elige una opción:", 
         item['opciones'], 
         index=None, 
-        key=f"p_final_{st.session_state.idx}"
+        key=f"v_final_{st.session_state.idx}"
     )
 
     col_val, col_sig = st.columns(2)
 
-    # Validación por texto exacto
     es_correcta = False
     if seleccion:
         es_correcta = seleccion.strip() == item['correcta'].strip()
@@ -151,7 +146,7 @@ elif st.session_state.paso == 'test':
         st.session_state.idx += 1
         st.rerun()
 
-# --- PANTALLA FINAL ---
+# --- RESULTADOS ---
 if st.session_state.paso == 'test' and st.session_state.idx >= len(st.session_state.preguntas):
     st.balloons()
     st.title("🏁 Resultados")
