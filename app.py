@@ -43,7 +43,8 @@ def procesar_temario(df):
 if 'paso' not in st.session_state:
     st.session_state.update({
         'paso': 'inicio', 'idx': 0, 'aciertos': 0, 'fallos': 0, 'blancos': 0,
-        'preguntas': [], 'modo': '', 'historial': []
+        'preguntas': [], 'preguntas_respaldo': [], 'modo': '', 'historial': [],
+        'cantidad_examen': 0, 'tema_actual_id': ''
     })
 
 st.set_page_config(page_title="App Oposiciones", layout="wide")
@@ -57,14 +58,14 @@ if st.session_state.paso == 'inicio':
         temas = [f"{str(r['Tema']).strip()} - {str(r.get('Nombre Largo', 'Sin título')).strip()}" for _, r in df_idx.iterrows()]
         seleccion = st.selectbox("Selecciona un tema:", temas)
         
-        if st.button("Comenzar"):
+        if st.button("Cargar Tema"):
             t_id = seleccion.split(" - ")[0].strip()
             raw = obtener_datos(URL_SHEET, t_id)
             preguntas_cargadas = procesar_temario(raw)
             
             if preguntas_cargadas:
-                random.shuffle(preguntas_cargadas)
-                st.session_state.preguntas = preguntas_cargadas
+                st.session_state.preguntas_respaldo = preguntas_cargadas # Guardamos todas para poder repetir
+                st.session_state.tema_actual_id = t_id
                 st.session_state.paso = 'modo'
                 st.rerun()
             else:
@@ -72,21 +73,27 @@ if st.session_state.paso == 'inicio':
 
 # --- PANTALLA 2: SELECCIÓN DE MODO Y CANTIDAD ---
 elif st.session_state.paso == 'modo':
-    total_disponible = len(st.session_state.preguntas)
+    total_disponible = len(st.session_state.preguntas_respaldo)
     st.info(f"Tema cargado con **{total_disponible}** preguntas.")
     
     tab1, tab2 = st.tabs(["🛠️ Modo Entrenamiento", "⏱️ Modo Examen"])
     
     with tab1:
         if st.button("Iniciar Entrenamiento", use_container_width=True):
+            st.session_state.preguntas = list(st.session_state.preguntas_respaldo)
+            random.shuffle(st.session_state.preguntas)
             st.session_state.modo = 'Entrenamiento'
             st.session_state.paso = 'test'
             st.rerun()
             
     with tab2:
         cantidad = st.slider("Número de preguntas para el examen:", 1, total_disponible, total_disponible)
-        if st.button(f"Iniciar Examen con {cantidad} preguntas", use_container_width=True):
-            st.session_state.preguntas = st.session_state.preguntas[:cantidad]
+        if st.button(f"Iniciar Examen", use_container_width=True):
+            # Preparar examen
+            pool = list(st.session_state.preguntas_respaldo)
+            random.shuffle(pool)
+            st.session_state.preguntas = pool[:cantidad]
+            st.session_state.cantidad_examen = cantidad # Guardamos la preferencia
             st.session_state.modo = 'Examen'
             st.session_state.paso = 'test'
             st.session_state.historial = [] 
@@ -117,22 +124,17 @@ elif st.session_state.paso == 'test':
                     st.warning("Selecciona una opción.")
 
         if col2.button("Siguiente ➡️"):
-            # Lógica de corrección
             resultado_marca = "❌"
-            es_blanco = False
-            
             if not seleccion:
-                resultado_marca = "⚪" # Blanco
+                resultado_marca = "⚪"
                 st.session_state.blancos += 1
-                es_blanco = True
             elif seleccion.strip() == item['correcta'].strip():
-                resultado_marca = "✅" # Acierto
+                resultado_marca = "✅"
                 st.session_state.aciertos += 1
             else:
-                resultado_marca = "❌" # Fallo
+                resultado_marca = "❌"
                 st.session_state.fallos += 1
 
-            # Guardamos en el historial
             st.session_state.historial.append({
                 'Pregunta': item['pregunta'],
                 'Tu Respuesta': seleccion if seleccion else "No contestada",
@@ -148,18 +150,13 @@ elif st.session_state.paso == 'test':
         st.balloons()
         st.title("🏁 Resultados Finales")
         
-        # CÁLCULOS DE NOTA
         n_preguntas = len(qs)
         a = st.session_state.aciertos
         f = st.session_state.fallos
         b = st.session_state.blancos
-        
-        # Fórmula: (Aciertos - (Fallos * 0.3333333)) / Total
         puntos_totales = a - (f * 0.3333333)
-        nota_final = (puntos_totales / n_preguntas) * 10
-        nota_final = max(0, nota_final) # Evitar notas negativas
+        nota_final = max(0, (puntos_totales / n_preguntas) * 10)
 
-        # Mostrar métricas
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Aciertos ✅", a)
         m2.metric("Fallos ❌", f)
@@ -170,7 +167,23 @@ elif st.session_state.paso == 'test':
         df_resumen = pd.DataFrame(st.session_state.historial)
         st.table(df_resumen)
         
-        if st.button("Volver al Inicio"):
+        st.divider()
+        c_fin1, c_fin2 = st.columns(2)
+        
+        if c_fin1.button("🔄 Repetir mismo examen (Nuevas preguntas)", use_container_width=True):
+            # Reiniciar contadores
+            st.session_state.idx = 0
+            st.session_state.aciertos = 0
+            st.session_state.fallos = 0
+            st.session_state.blancos = 0
+            st.session_state.historial = []
+            # Barajar de nuevo y coger la misma cantidad
+            pool = list(st.session_state.preguntas_respaldo)
+            random.shuffle(pool)
+            st.session_state.preguntas = pool[:st.session_state.cantidad_examen]
+            st.rerun()
+
+        if c_fin2.button("🏠 Volver al Inicio", use_container_width=True):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
