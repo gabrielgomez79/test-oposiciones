@@ -42,7 +42,7 @@ def procesar_temario(df):
 # ================= INICIALIZACIÓN DE ESTADOS =================
 if 'paso' not in st.session_state:
     st.session_state.update({
-        'paso': 'inicio', 'idx': 0, 'puntos': 0, 
+        'paso': 'inicio', 'idx': 0, 'aciertos': 0, 'fallos': 0, 'blancos': 0,
         'preguntas': [], 'modo': '', 'historial': []
     })
 
@@ -89,7 +89,7 @@ elif st.session_state.paso == 'modo':
             st.session_state.preguntas = st.session_state.preguntas[:cantidad]
             st.session_state.modo = 'Examen'
             st.session_state.paso = 'test'
-            st.session_state.historial = [] # Limpiamos historial
+            st.session_state.historial = [] 
             st.rerun()
 
 # --- PANTALLA 3: TEST ---
@@ -117,33 +117,57 @@ elif st.session_state.paso == 'test':
                     st.warning("Selecciona una opción.")
 
         if col2.button("Siguiente ➡️"):
-            # Guardamos el resultado en el historial
+            # Lógica de corrección
+            resultado_marca = "❌"
+            es_blanco = False
+            
+            if not seleccion:
+                resultado_marca = "⚪" # Blanco
+                st.session_state.blancos += 1
+                es_blanco = True
+            elif seleccion.strip() == item['correcta'].strip():
+                resultado_marca = "✅" # Acierto
+                st.session_state.aciertos += 1
+            else:
+                resultado_marca = "❌" # Fallo
+                st.session_state.fallos += 1
+
+            # Guardamos en el historial
             st.session_state.historial.append({
                 'Pregunta': item['pregunta'],
                 'Tu Respuesta': seleccion if seleccion else "No contestada",
                 'Correcta': item['correcta'],
-                'Resultado': "✅" if seleccion and seleccion.strip() == item['correcta'].strip() else "❌",
+                'Resultado': resultado_marca,
                 'Justificación': item['explicacion']
             })
             
-            if seleccion and seleccion.strip() == item['correcta'].strip():
-                st.session_state.puntos += 1
             st.session_state.idx += 1
             st.rerun()
     else:
         # PANTALLA DE RESULTADOS
         st.balloons()
         st.title("🏁 Resultados Finales")
-        st.metric("Puntuación Total", f"{st.session_state.puntos} / {len(qs)}")
         
-        # TABLA RESUMEN (Solo si es modo examen o si quieres ver el resumen)
-        st.subheader("📊 Resumen del Examen")
+        # CÁLCULOS DE NOTA
+        n_preguntas = len(qs)
+        a = st.session_state.aciertos
+        f = st.session_state.fallos
+        b = st.session_state.blancos
+        
+        # Fórmula: (Aciertos - (Fallos * 0.3333333)) / Total
+        puntos_totales = a - (f * 0.3333333)
+        nota_final = (puntos_totales / n_preguntas) * 10
+        nota_final = max(0, nota_final) # Evitar notas negativas
+
+        # Mostrar métricas
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Aciertos ✅", a)
+        m2.metric("Fallos ❌", f)
+        m3.metric("Blancos ⚪", b)
+        m4.metric("NOTA FINAL", f"{nota_final:.2f} / 10")
+
+        st.subheader("📊 Desglose Detallado")
         df_resumen = pd.DataFrame(st.session_state.historial)
-        
-        # Estilizar la tabla
-        def resaltar_filas(s):
-            return ['background-color: #d4edda' if v == "✅" else 'background-color: #f8d7da' for v in s]
-        
         st.table(df_resumen)
         
         if st.button("Volver al Inicio"):
