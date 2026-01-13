@@ -21,36 +21,38 @@ def procesar_bloques(df):
     if df.empty or 'Pregunta' not in df.columns: 
         return []
     
-    # Recorremos el Excel en bloques de 5 filas (Fila 0=Pregunta, Filas 1-4=Opciones)
+    # Recorremos el Excel en bloques de 5 filas
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
+        # 1. ENUNCIADO Y EXPLICACIÓN (Fila 0 del bloque)
         enunciado = str(bloque.iloc[0]['Pregunta']).strip()
-        justificacion_texto = str(bloque.iloc[0]['Justificación']).strip()
+        justificacion_general = str(bloque.iloc[0]['Justificación']).strip()
         
         opciones_bloque = []
-        texto_correcta = None # Inicializamos como vacío
+        texto_correcta = None 
         
-        # Analizamos las 4 opciones (Filas 1 a 4 del bloque)
+        # 2. RESPUESTAS (Filas 1 a 4 del bloque)
+        # Solo buscamos la palabra "correcta" en estas 4 filas específicas
         for j in range(1, 5):
-            opcion_actual = str(bloque.iloc[j]['Pregunta']).strip()
-            # Limpiamos la celda de justificación para buscar la palabra clave
-            marcador = str(bloque.iloc[j]['Justificación']).lower().strip()
+            opcion_texto = str(bloque.iloc[j]['Pregunta']).strip()
+            # marcador_fila es el contenido de la columna 'Justificación' en las filas de las respuestas
+            marcador_fila = str(bloque.iloc[j]['Justificación']).lower().strip()
             
-            opciones_bloque.append(opcion_actual)
+            opciones_bloque.append(opcion_texto)
             
-            # CRUCIAL: Solo asignamos si detectamos "correcta" Y la variable está vacía
-            if "correcta" in marcador and texto_correcta is None:
-                texto_correcta = opcion_actual
+            # Solo guardamos como correcta si la palabra está en esa fila de respuesta
+            if "correcta" in marcador_fila:
+                texto_correcta = opcion_texto
         
-        # Solo añadimos el paquete si hemos encontrado una respuesta correcta
+        # 3. VALIDACIÓN FINAL DEL PAQUETE
         if enunciado and enunciado.lower() != "nan" and texto_correcta is not None:
             preguntas_finales.append({
                 "pregunta": enunciado,
                 "opciones": opciones_bloque,
                 "correcta": texto_correcta,
-                "explicacion": justificacion_texto
+                "explicacion": justificacion_general
             })
     return preguntas_finales
 
@@ -118,14 +120,20 @@ elif st.session_state.paso == 'test':
     item = st.session_state.preguntas[st.session_state.idx]
     st.write(f"**{item['pregunta']}**")
     
-    seleccion = st.radio("Elige una opción:", item['opciones'], index=None, key=f"rad_{st.session_state.idx}")
+    # IMPORTANTE: El key dinámico evita que Streamlit arrastre la selección de la pregunta anterior
+    seleccion = st.radio(
+        "Elige una opción:", 
+        item['opciones'], 
+        index=None, 
+        key=f"p_quiz_{st.session_state.idx}"
+    )
 
     col_val, col_sig = st.columns(2)
 
-    # Comparación exacta de contenidos
+    # Comparación robusta
     es_correcta = False
-    if seleccion:
-        es_correcta = seleccion.strip() == item['correcta'].strip()
+    if seleccion is not None:
+        es_correcta = str(seleccion).strip().lower() == str(item['correcta']).strip().lower()
 
     if st.session_state.modo == 'Entrenamiento':
         if col_val.button("Validar ✅", use_container_width=True):
@@ -144,11 +152,11 @@ elif st.session_state.paso == 'test':
         st.session_state.idx += 1
         st.rerun()
 
-# --- RESULTADOS ---
+# --- PANTALLA FINAL ---
 if st.session_state.paso == 'test' and st.session_state.idx >= len(st.session_state.preguntas):
     st.balloons()
-    st.title("🏁 Fin del Test")
-    st.metric("Puntuación", f"{st.session_state.puntos} / {len(st.session_state.preguntas)}")
+    st.title("🏁 Resultados")
+    st.metric("Aciertos", f"{st.session_state.puntos} / {len(st.session_state.preguntas)}")
     if st.button("Volver al Inicio"):
         st.session_state.clear()
         st.rerun()
