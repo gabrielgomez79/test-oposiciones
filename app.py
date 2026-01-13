@@ -21,30 +21,31 @@ def procesar_bloques(df):
     if df.empty or 'Pregunta' not in df.columns: 
         return []
     
-    # Recorremos el Excel en bloques de 5 filas
+    # Recorremos el Excel en bloques de 5 filas (Fila 0=Pregunta, Filas 1-4=Opciones)
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # Fila 0 del bloque: Enunciado y Justificación explicativa
         enunciado = str(bloque.iloc[0]['Pregunta']).strip()
         justificacion_texto = str(bloque.iloc[0]['Justificación']).strip()
         
         opciones_bloque = []
-        texto_correcta = ""
+        texto_correcta = None # Inicializamos como vacío
         
-        # Filas 1 a 4 del bloque: Las 4 opciones
+        # Analizamos las 4 opciones (Filas 1 a 4 del bloque)
         for j in range(1, 5):
             opcion_actual = str(bloque.iloc[j]['Pregunta']).strip()
-            marcador = str(bloque.iloc[j]['Justificación']).lower()
+            # Limpiamos la celda de justificación para buscar la palabra clave
+            marcador = str(bloque.iloc[j]['Justificación']).lower().strip()
             
             opciones_bloque.append(opcion_actual)
             
-            # Identificamos la correcta por el marcador en la segunda columna
-            if "correcta" in marcador:
+            # CRUCIAL: Solo asignamos si detectamos "correcta" Y la variable está vacía
+            if "correcta" in marcador and texto_correcta is None:
                 texto_correcta = opcion_actual
         
-        if enunciado and enunciado.lower() != "nan" and texto_correcta:
+        # Solo añadimos el paquete si hemos encontrado una respuesta correcta
+        if enunciado and enunciado.lower() != "nan" and texto_correcta is not None:
             preguntas_finales.append({
                 "pregunta": enunciado,
                 "opciones": opciones_bloque,
@@ -89,7 +90,7 @@ if st.session_state.paso == 'inicio':
                 
                 df_qs = obtener_datos_completos(URL_SHEET, st.session_state.tema_id)
                 lista_qs = procesar_bloques(df_qs)
-                random.shuffle(lista_qs) # Aleatoriedad
+                random.shuffle(lista_qs) 
                 
                 st.session_state.preguntas = lista_qs
                 st.session_state.idx = 0
@@ -117,16 +118,14 @@ elif st.session_state.paso == 'test':
     item = st.session_state.preguntas[st.session_state.idx]
     st.write(f"**{item['pregunta']}**")
     
-    # IMPORTANTE: index=None para que no haya nada marcado
     seleccion = st.radio("Elige una opción:", item['opciones'], index=None, key=f"rad_{st.session_state.idx}")
 
     col_val, col_sig = st.columns(2)
 
-    # Lógica de validación de texto
+    # Comparación exacta de contenidos
     es_correcta = False
     if seleccion:
-        # Limpiamos ambos textos para comparar sin errores de espacios o mayúsculas
-        es_correcta = seleccion.strip().lower() == item['correcta'].strip().lower()
+        es_correcta = seleccion.strip() == item['correcta'].strip()
 
     if st.session_state.modo == 'Entrenamiento':
         if col_val.button("Validar ✅", use_container_width=True):
