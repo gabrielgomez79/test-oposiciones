@@ -39,14 +39,14 @@ def procesar_temario(df):
             })
     return lista_final
 
-# ================= INTERFAZ =================
-st.set_page_config(page_title="App Oposiciones", layout="centered")
-
+# ================= INICIALIZACIÓN DE ESTADOS =================
 if 'paso' not in st.session_state:
     st.session_state.update({
         'paso': 'inicio', 'idx': 0, 'puntos': 0, 
-        'preguntas': [], 'modo': '', 'total_examen': 0
+        'preguntas': [], 'modo': '', 'historial': []
     })
+
+st.set_page_config(page_title="App Oposiciones", layout="wide")
 
 # --- PANTALLA 1: SELECCIÓN DE TEMA ---
 if st.session_state.paso == 'inicio':
@@ -78,27 +78,18 @@ elif st.session_state.paso == 'modo':
     tab1, tab2 = st.tabs(["🛠️ Modo Entrenamiento", "⏱️ Modo Examen"])
     
     with tab1:
-        st.write("En este modo verás la solución al instante.")
         if st.button("Iniciar Entrenamiento", use_container_width=True):
             st.session_state.modo = 'Entrenamiento'
             st.session_state.paso = 'test'
             st.rerun()
             
     with tab2:
-        st.write("Selecciona cuántas preguntas quieres:")
-        # Slider para elegir cantidad
-        cantidad = st.slider("Número de preguntas:", 1, total_disponible, total_disponible)
-        
-        col_ex1, col_ex2 = st.columns(2)
-        if col_ex1.button(f"Hacer {cantidad} preguntas", use_container_width=True):
+        cantidad = st.slider("Número de preguntas para el examen:", 1, total_disponible, total_disponible)
+        if st.button(f"Iniciar Examen con {cantidad} preguntas", use_container_width=True):
             st.session_state.preguntas = st.session_state.preguntas[:cantidad]
             st.session_state.modo = 'Examen'
             st.session_state.paso = 'test'
-            st.rerun()
-        
-        if col_ex2.button("Todas las preguntas", use_container_width=True):
-            st.session_state.modo = 'Examen'
-            st.session_state.paso = 'test'
+            st.session_state.historial = [] # Limpiamos historial
             st.rerun()
 
 # --- PANTALLA 3: TEST ---
@@ -114,7 +105,6 @@ elif st.session_state.paso == 'test':
         seleccion = st.radio("Selecciona tu respuesta:", item['opciones'], index=None, key=f"r_{idx}")
         col1, col2 = st.columns(2)
         
-        # Lógica Entrenamiento: Permite validar antes de pasar
         if st.session_state.modo == 'Entrenamiento':
             if col1.button("Validar ✅"):
                 if seleccion:
@@ -122,23 +112,41 @@ elif st.session_state.paso == 'test':
                         st.success("¡Respuesta Correcta!")
                     else:
                         st.error(f"Incorrecto. La correcta es: {item['correcta']}")
-                    st.info(f"Justificación: {item['explicacion']}")
+                    st.info(f"💡 {item['explicacion']}")
                 else:
                     st.warning("Selecciona una opción.")
 
-        # Botón para avanzar
-        texto_btn = "Siguiente ➡️" if seleccion else "Saltar ⏭️"
-        if col2.button(texto_btn):
+        if col2.button("Siguiente ➡️"):
+            # Guardamos el resultado en el historial
+            st.session_state.historial.append({
+                'Pregunta': item['pregunta'],
+                'Tu Respuesta': seleccion if seleccion else "No contestada",
+                'Correcta': item['correcta'],
+                'Resultado': "✅" if seleccion and seleccion.strip() == item['correcta'].strip() else "❌",
+                'Justificación': item['explicacion']
+            })
+            
             if seleccion and seleccion.strip() == item['correcta'].strip():
                 st.session_state.puntos += 1
             st.session_state.idx += 1
             st.rerun()
     else:
+        # PANTALLA DE RESULTADOS
         st.balloons()
         st.title("🏁 Resultados Finales")
-        st.metric("Aciertos", f"{st.session_state.puntos} / {len(qs)}")
+        st.metric("Puntuación Total", f"{st.session_state.puntos} / {len(qs)}")
+        
+        # TABLA RESUMEN (Solo si es modo examen o si quieres ver el resumen)
+        st.subheader("📊 Resumen del Examen")
+        df_resumen = pd.DataFrame(st.session_state.historial)
+        
+        # Estilizar la tabla
+        def resaltar_filas(s):
+            return ['background-color: #d4edda' if v == "✅" else 'background-color: #f8d7da' for v in s]
+        
+        st.table(df_resumen)
+        
         if st.button("Volver al Inicio"):
-            # Limpiamos todo para empezar de cero
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
