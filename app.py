@@ -17,42 +17,39 @@ def obtener_datos_completos(url, hoja):
         return pd.DataFrame()
 
 def procesar_bloques(df):
-    """
-    Esta función crea el 'paquete' indivisible:
-    Pregunta + 4 Opciones + Respuesta Correcta + Justificación
-    """
     preguntas_finales = []
     if df.empty or 'Pregunta' not in df.columns: 
         return []
     
+    # Recorremos el Excel en bloques de 5 filas
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # 1. Extraemos el enunciado y la justificación (Fila 1 del bloque)
+        # Fila 0 del bloque: Enunciado y Justificación explicativa
         enunciado = str(bloque.iloc[0]['Pregunta']).strip()
-        explicacion_txt = str(bloque.iloc[0]['Justificación']).strip()
+        justificacion_texto = str(bloque.iloc[0]['Justificación']).strip()
         
-        # 2. Extraemos las 4 opciones y localizamos la correcta (Filas 2-5)
         opciones_bloque = []
-        respuesta_correcta = ""
+        texto_correcta = ""
         
+        # Filas 1 a 4 del bloque: Las 4 opciones
         for j in range(1, 5):
-            texto_opcion = str(bloque.iloc[j]['Pregunta']).strip()
-            marcador_justif = str(bloque.iloc[j]['Justificación']).lower()
-            opciones_bloque.append(texto_opcion)
+            opcion_actual = str(bloque.iloc[j]['Pregunta']).strip()
+            marcador = str(bloque.iloc[j]['Justificación']).lower()
             
-            # Buscamos la marca de 'correcta' en la columna de Justificación
-            if "correcta" in marcador_justif:
-                respuesta_correcta = texto_opcion
+            opciones_bloque.append(opcion_actual)
+            
+            # Identificamos la correcta por el marcador en la segunda columna
+            if "correcta" in marcador:
+                texto_correcta = opcion_actual
         
-        # 3. EMPAQUETAMOS: Si el bloque está completo, lo añadimos como unidad
-        if enunciado and enunciado.lower() != "nan" and respuesta_correcta:
+        if enunciado and enunciado.lower() != "nan" and texto_correcta:
             preguntas_finales.append({
                 "pregunta": enunciado,
                 "opciones": opciones_bloque,
-                "correcta": respuesta_correcta,
-                "explicacion": explicacion_txt
+                "correcta": texto_correcta,
+                "explicacion": justificacion_texto
             })
     return preguntas_finales
 
@@ -90,25 +87,24 @@ if st.session_state.paso == 'inicio':
                 st.session_state.tema_id = partes[0].strip()
                 st.session_state.titulo_largo = partes[1].strip()
                 
-                # CARGAMOS LOS PAQUETES
                 df_qs = obtener_datos_completos(URL_SHEET, st.session_state.tema_id)
-                lista_desordenada = procesar_bloques(df_qs)
+                lista_qs = procesar_bloques(df_qs)
+                random.shuffle(lista_qs) # Aleatoriedad
                 
-                # MEZCLAMOS LOS PAQUETES (No se mezclan filas sueltas, sino preguntas completas)
-                random.shuffle(lista_desordenada)
-                
-                st.session_state.preguntas = lista_desordenada
+                st.session_state.preguntas = lista_qs
+                st.session_state.idx = 0
+                st.session_state.puntos = 0
                 st.session_state.paso = 'modo'
                 st.rerun()
 
 # --- PANTALLA 2: MODO ---
 elif st.session_state.paso == 'modo':
     st.info(f"🎯 **{st.session_state.tema_id}: {st.session_state.titulo_largo}**")
-    col1, col2 = st.columns(2)
-    if col1.button("🛠️ Entrenamiento", use_container_width=True):
+    c1, c2 = st.columns(2)
+    if c1.button("🛠️ Entrenamiento", use_container_width=True):
         st.session_state.modo, st.session_state.paso = 'Entrenamiento', 'test'
         st.rerun()
-    if col2.button("⏱️ Examen", use_container_width=True):
+    if c2.button("⏱️ Examen", use_container_width=True):
         st.session_state.modo, st.session_state.paso = 'Examen', 'test'
         st.rerun()
 
@@ -118,39 +114,42 @@ elif st.session_state.paso == 'test':
     st.caption(f"Pregunta {st.session_state.idx + 1} de {len(st.session_state.preguntas)}")
     st.divider()
 
-    qs = st.session_state.preguntas
-    if st.session_state.idx < len(qs):
-        # Extraemos el 'paquete' de la posición actual
-        item = qs[st.session_state.idx]
-        st.write(f"**{item['pregunta']}**")
-        
-        # Las opciones se muestran en el orden que tengan dentro de su paquete
-        seleccion = st.radio("Opciones:", item['opciones'], index=None, key=f"p_{st.session_state.idx}")
+    item = st.session_state.preguntas[st.session_state.idx]
+    st.write(f"**{item['pregunta']}**")
+    
+    # IMPORTANTE: index=None para que no haya nada marcado
+    seleccion = st.radio("Elige una opción:", item['opciones'], index=None, key=f"rad_{st.session_state.idx}")
 
-        col_val, col_sig = st.columns(2)
+    col_val, col_sig = st.columns(2)
 
-        if st.session_state.modo == 'Entrenamiento':
-            if col_val.button("Validar ✅", use_container_width=True):
-                if seleccion is None:
-                    st.warning("⚠️ Selecciona una respuesta.")
-                else:
-                    es_ok = seleccion.strip().lower() == item['correcta'].strip().lower()
-                    if es_ok: st.success("¡Correcto!")
-                    else: st.error(f"Incorrecto. La correcta era: {item['correcta']}")
-                    st.info(f"💡 {item['explicacion']}")
+    # Lógica de validación de texto
+    es_correcta = False
+    if seleccion:
+        # Limpiamos ambos textos para comparar sin errores de espacios o mayúsculas
+        es_correcta = seleccion.strip().lower() == item['correcta'].strip().lower()
 
-        # Botón Siguiente / Saltar
-        btn_txt = "Siguiente ➡️" if seleccion is not None else "Saltar ⏭️"
-        if col_sig.button(btn_txt, use_container_width=True):
-            if seleccion is not None:
-                if seleccion.strip().lower() == item['correcta'].strip().lower():
-                    st.session_state.puntos += 1
-            st.session_state.idx += 1
-            st.rerun()
-    else:
-        st.balloons()
-        st.title("🏁 Resultados")
-        st.metric("Aciertos", f"{st.session_state.puntos} / {len(qs)}")
-        if st.button("Volver al Inicio"):
-            st.session_state.clear()
-            st.rerun()
+    if st.session_state.modo == 'Entrenamiento':
+        if col_val.button("Validar ✅", use_container_width=True):
+            if seleccion is None:
+                st.warning("⚠️ Selecciona una respuesta.")
+            elif es_correcta:
+                st.success("¡Correcto! ✨")
+            else:
+                st.error(f"Incorrecto. La correcta era: {item['correcta']}")
+                st.info(f"💡 {item['explicacion']}")
+
+    btn_txt = "Siguiente ➡️" if seleccion else "Saltar ⏭️"
+    if col_sig.button(btn_txt, use_container_width=True):
+        if es_correcta:
+            st.session_state.puntos += 1
+        st.session_state.idx += 1
+        st.rerun()
+
+# --- RESULTADOS ---
+if st.session_state.paso == 'test' and st.session_state.idx >= len(st.session_state.preguntas):
+    st.balloons()
+    st.title("🏁 Fin del Test")
+    st.metric("Puntuación", f"{st.session_state.puntos} / {len(st.session_state.preguntas)}")
+    if st.button("Volver al Inicio"):
+        st.session_state.clear()
+        st.rerun()
