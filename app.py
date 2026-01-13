@@ -21,38 +21,38 @@ def procesar_bloques(df):
     if df.empty or 'Pregunta' not in df.columns: 
         return []
     
-    # Recorremos el Excel en bloques de 5 filas
+    # Procesamos bloques de 5 filas estrictos
     for i in range(0, len(df), 5):
         bloque = df.iloc[i:i+5]
         if len(bloque) < 5: break
         
-        # 1. ENUNCIADO Y EXPLICACIÓN (Fila 0 del bloque)
+        # Fila 0: Enunciado y Explicación
         enunciado = str(bloque.iloc[0]['Pregunta']).strip()
-        justificacion_general = str(bloque.iloc[0]['Justificación']).strip()
+        justificacion_gen = str(bloque.iloc[0]['Justificación']).strip()
         
         opciones_bloque = []
         texto_correcta = None 
         
-        # 2. RESPUESTAS (Filas 1 a 4 del bloque)
-        # Solo buscamos la palabra "correcta" en estas 4 filas específicas
+        # Analizamos Opciones (Filas 1 a 4 del bloque)
         for j in range(1, 5):
-            opcion_texto = str(bloque.iloc[j]['Pregunta']).strip()
-            # marcador_fila es el contenido de la columna 'Justificación' en las filas de las respuestas
-            marcador_fila = str(bloque.iloc[j]['Justificación']).lower().strip()
+            opcion_txt = str(bloque.iloc[j]['Pregunta']).strip()
+            # Miramos la columna Justificación de esa fila específica
+            marcador = str(bloque.iloc[j]['Justificación']).lower().strip()
             
-            opciones_bloque.append(opcion_texto)
+            opciones_bloque.append(opcion_txt)
             
-            # Solo guardamos como correcta si la palabra está en esa fila de respuesta
-            if "correcta" in marcador_fila:
-                texto_correcta = opcion_texto
+            # Si encontramos "correcta", la guardamos y PARAMOS de buscar en este bloque
+            if "correcta" in marcador:
+                texto_correcta = opcion_txt
+                break # Esto evita que se sobrescriba con la opción D
         
-        # 3. VALIDACIÓN FINAL DEL PAQUETE
-        if enunciado and enunciado.lower() != "nan" and texto_correcta is not None:
+        # Solo añadimos si el bloque es coherente
+        if enunciado and enunciado.lower() != "nan" and texto_correcta:
             preguntas_finales.append({
                 "pregunta": enunciado,
                 "opciones": opciones_bloque,
                 "correcta": texto_correcta,
-                "explicacion": justificacion_general
+                "explicacion": justificacion_gen
             })
     return preguntas_finales
 
@@ -120,20 +120,19 @@ elif st.session_state.paso == 'test':
     item = st.session_state.preguntas[st.session_state.idx]
     st.write(f"**{item['pregunta']}**")
     
-    # IMPORTANTE: El key dinámico evita que Streamlit arrastre la selección de la pregunta anterior
     seleccion = st.radio(
         "Elige una opción:", 
         item['opciones'], 
         index=None, 
-        key=f"p_quiz_{st.session_state.idx}"
+        key=f"p_final_{st.session_state.idx}"
     )
 
     col_val, col_sig = st.columns(2)
 
-    # Comparación robusta
+    # Validación por texto exacto
     es_correcta = False
-    if seleccion is not None:
-        es_correcta = str(seleccion).strip().lower() == str(item['correcta']).strip().lower()
+    if seleccion:
+        es_correcta = seleccion.strip() == item['correcta'].strip()
 
     if st.session_state.modo == 'Entrenamiento':
         if col_val.button("Validar ✅", use_container_width=True):
